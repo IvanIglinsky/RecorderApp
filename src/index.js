@@ -2,7 +2,23 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import './index.css';
 import App from './App';
-import reportWebVitals from './reportWebVitals';
+
+
+import { initializeApp } from 'firebase/app';
+import { getFirestore } from 'firebase/firestore';
+
+export const firebaseConfig = {
+    apiKey: "AIzaSyCojbWKfqoB_wex_JNAkt-P8bByciA3HF0",
+    authDomain: "audio-recorder-app-fzxa7d.firebaseapp.com",
+    projectId: "audio-recorder-app-fzxa7d",
+    storageBucket: "audio-recorder-app-fzxa7d.appspot.com",
+    messagingSenderId: "164924807497",
+    appId: "1:164924807497:web:c71305b1306354314ce298",
+    measurementId: "G-2JKM00EWN8"
+};
+
+const app = initializeApp(firebaseConfig);
+export const db = getFirestore(app);
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
@@ -10,8 +26,3 @@ root.render(
     <App />
   </React.StrictMode>
 );
-
-// If you want to start measuring performance in your app, pass a function
-// to log results (for example: reportWebVitals(console.log))
-// or send to an analytics endpoint. Learn more: https://bit.ly/CRA-vitals
-reportWebVitals();
