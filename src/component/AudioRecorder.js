@@ -4,13 +4,12 @@ const AudioRecorder = () => {
     const [isRecording, setIsRecording] = useState(false);
     const [timer, setTimer] = useState(0);
     const [recordedAudioBlobAll, setRecordedAudioBlobAll] = useState(null);
-    const [recordedAudioBlobVoice, setRecordedAudioBlobVoice] = useState(null);
-    const [recordedAudioURLVoice, setRecordedAudioURLVoice] = useState(null);
-
+    const [recordedAudioBlobVoice, setRecordedAudioBlobVoice] = useState();
     const timerRef = useRef(null);
     const mediaRecorderRefAll = useRef(null);
     const mediaRecorderRefVoice = useRef(null);
-
+    const mediaVoiceChunks = useRef([]);
+    const [audioChunks,setAudioChunks]=useState([])
     const soundMeter = async () => {
         if (!window.AudioContext && !window.webkitAudioContext) {
             console.log("Web Audio API is not supported by this browser");
@@ -23,9 +22,9 @@ const AudioRecorder = () => {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             const source = audioContext.createMediaStreamSource(stream);
             const scriptProcessor = audioContext.createScriptProcessor(4096, 1, 1);
-            const chunksAll = [];
-            const chunksVoice = [];
+
             let isRecordingAllowed = false;
+            let mediaRecorderVoice;
 
             scriptProcessor.onaudioprocess = function (event) {
                 const inputBuffer = event.inputBuffer.getChannelData(0);
@@ -33,15 +32,23 @@ const AudioRecorder = () => {
                 const rms = Math.sqrt(sum / inputBuffer.length);
                 const dB = 20 * Math.log10(rms);
 
-                chunksAll.push(new Float32Array(inputBuffer));
-
                 if (isRecordingAllowed) {
-                    chunksVoice.push(new Float32Array(inputBuffer));
+                    mediaVoiceChunks.current.push(new Float32Array(inputBuffer));
+
                 }
 
-                if (dB > -30 && !isRecordingAllowed) {
+                if (dB > -50 && !isRecordingAllowed) {
                     isRecordingAllowed = true;
-                } else if (dB <= -30 && isRecordingAllowed) {
+                    mediaRecorderVoice = new MediaRecorder(stream);
+                    mediaRecorderVoice.ondataavailable = (event) => {
+                        if (event.data.size > 0) {
+                            setAudioChunks((prevChunks) => [...prevChunks, event.data]);
+                            console.log(event.data)
+                        }
+                    };
+                    mediaRecorderRefVoice.current = mediaRecorderVoice;
+                    mediaRecorderVoice.start();
+                } else if (dB <= -50 && isRecordingAllowed) {
                     isRecordingAllowed = false;
                 }
             };
@@ -52,27 +59,13 @@ const AudioRecorder = () => {
             const mediaRecorderAll = new MediaRecorder(stream);
             mediaRecorderAll.ondataavailable = (event) => {
                 if (event.data.size > 0) {
-                    const blob = new Blob(chunksAll, { type: 'audio/mp3' });
+                    const blob = new Blob([event.data], { type: 'audio/mp3' });
                     setRecordedAudioBlobAll(blob);
                 }
             };
 
-            const mediaRecorderVoice = new MediaRecorder(stream);
-            mediaRecorderVoice.ondataavailable = (event) => {
-                if (event.data.size > 0) {
-                    const blob = new Blob(chunksVoice, { type: 'audio/mp3' });
-                    setRecordedAudioBlobVoice(blob);
-                }
-            };
-
-            mediaRecorderAll.onstop = mediaRecorderVoice.onstop = () => {
-                stream.getTracks().forEach(track => track.stop());
-            };
-
             mediaRecorderRefAll.current = mediaRecorderAll;
-            mediaRecorderRefVoice.current = mediaRecorderVoice;
             mediaRecorderAll.start();
-            mediaRecorderVoice.start();
         } catch (error) {
             console.log("Error accessing the microphone:", error);
         }
@@ -85,34 +78,8 @@ const AudioRecorder = () => {
         }
 
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            const audioTrack = stream.getAudioTracks()[0];
-
-            const mediaRecorderAll = new MediaRecorder(stream);
-            const mediaRecorderVoice = new MediaRecorder(stream);
-
-            mediaRecorderAll.ondataavailable = (event) => {
-                if (event.data.size > 0) {
-                    setRecordedAudioBlobAll(event.data);
-                }
-            };
-
-            mediaRecorderVoice.ondataavailable = (event) => {
-                if (event.data.size > 0) {
-                    setRecordedAudioBlobVoice(event.data);
-                }
-            };
-
-            mediaRecorderAll.onstop = mediaRecorderVoice.onstop = () => {
-                audioTrack.stop();
-            };
-
-            setIsRecording(true);
-            mediaRecorderRefAll.current = mediaRecorderAll;
-            mediaRecorderRefVoice.current = mediaRecorderVoice;
-            mediaRecorderAll.start();
-            mediaRecorderVoice.start();
             await soundMeter();
+            setIsRecording(true);
             timerRef.current = setInterval(() => {
                 setTimer((prevTimer) => prevTimer + 1);
             }, 1000);
@@ -122,21 +89,28 @@ const AudioRecorder = () => {
     };
 
     const stopRecording = async () => {
-        if( mediaRecorderRefAll.current && mediaRecorderRefAll.current.state === 'recording' ) {
-            mediaRecorderRefAll.current.stop ();
+        if (mediaRecorderRefAll.current && mediaRecorderRefAll.current.state === 'recording') {
+            mediaRecorderRefAll.current.stop();
         }
 
-        if( mediaRecorderRefVoice.current && mediaRecorderRefVoice.current.state === 'recording' ) {
-            mediaRecorderRefVoice.current.stop ();
+        if (mediaRecorderRefVoice.current && mediaRecorderRefVoice.current.state === 'recording') {
+            mediaRecorderRefVoice.current.stop();
         }
-        const storage = getStorage ();
-        const currentDateTime = new Date ();
-        const formattedDateTime = currentDateTime.toISOString ().replace ( /[\W_]+/g , '' );
-        const audioRef = ref ( storage , `react-audio/audio_${formattedDateTime}.mp3` );
-        await uploadBytes ( audioRef , recordedAudioBlobVoice );
-        setIsRecording ( false );
-        clearInterval ( timerRef.current );
-        setTimer ( 0 );
+
+        const mergedBlob = new Blob(mediaVoiceChunks.current, { type: 'audio/mp3' });
+        console.log(audioChunks)
+        setRecordedAudioBlobVoice(mergedBlob);
+        mediaVoiceChunks.current = [];
+
+        const storage = getStorage();
+        const currentDateTime = new Date();
+        const formattedDateTime = currentDateTime.toISOString().replace(/[\W_]+/g, '');
+        const audioRef = ref(storage, `react-audio/audio_${formattedDateTime}.mp3`);
+        await uploadBytes(audioRef, recordedAudioBlobVoice);
+
+        setIsRecording(false);
+        clearInterval(timerRef.current);
+        setTimer(0);
     };
 
     const toggleRecording = () => {
@@ -149,8 +123,8 @@ const AudioRecorder = () => {
 
     const downloadRecordedAudioAll = () => {
         if (recordedAudioBlobAll) {
-            const url = URL.createObjectURL(recordedAudioBlobAll);
 
+            const url = URL.createObjectURL(recordedAudioBlobAll);
             const a = document.createElement('a');
             document.body.appendChild(a);
             a.style = 'display: none';
@@ -164,11 +138,10 @@ const AudioRecorder = () => {
             console.error('No recorded all audio blob to download');
         }
     };
-
     const downloadRecordedAudioVoice = () => {
+
         if (recordedAudioBlobVoice) {
             const url = URL.createObjectURL(recordedAudioBlobVoice);
-            setRecordedAudioURLVoice(url);
             const a = document.createElement('a');
             document.body.appendChild(a);
             a.style = 'display: none';
@@ -178,6 +151,8 @@ const AudioRecorder = () => {
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
             console.log('Recorded voice audio downloaded successfully!');
+
+
         } else {
             console.error('No recorded voice audio blob to download');
         }
@@ -193,23 +168,17 @@ const AudioRecorder = () => {
                 {isRecording ? 'Stop' : 'Start'}
             </button>
             {isRecording && <p>Timer: {timer} seconds</p>}
-
             <div>
                 {recordedAudioBlobAll ?
-                <button className="DownloadBtn" onClick={downloadRecordedAudioAll}>
-                    Download All Audio
-                </button>
+                    <button className="DownloadBtn" onClick={downloadRecordedAudioAll}>
+                        Download All Audio
+                    </button>
                     :''}<br></br>
                 {recordedAudioBlobVoice ?
-                <button className="DownloadBtn" onClick={downloadRecordedAudioVoice}>
-                    Download Voice Audio
-                </button>
-                :''}<br/>
-                {recordedAudioURLVoice && (
-                    <div>
-                        <audio controls src={recordedAudioURLVoice}></audio>
-                    </div>
-                )}
+                    <button className="DownloadBtn" onClick={downloadRecordedAudioVoice}>
+                        Download Voice Audio
+                    </button>
+                    :''}
             </div>
         </div>
     );
